@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>수학 우주 탐험대</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stars" aria-hidden="true"></div>
+<div class="preview-badge" id="net-badge">기록은 이 기기에만 저장돼요</div>
+
+<!-- 1. 로그인 -->
+<section id="s-login" class="screen space active">
+  <div class="login-box">
+    <div class="logo" id="login-char"></div>
+    <h1>수학 우주 탐험대</h1>
+    <div class="row">
+      <label>반<select id="in-class"></select></label>
+      <label>번호<select id="in-num"></select></label>
+    </div>
+    <label class="full">비밀번호 (숫자 4자리)
+      <input id="in-pw" type="password" inputmode="numeric" maxlength="4" placeholder="처음이면 새로 정해요">
+    </label>
+    <label class="full">닉네임 (최대 8자)
+      <input id="in-nick" type="text" maxlength="8" placeholder="우주최강">
+    </label>
+    <p class="warn">⚠ 남을 놀리거나 비방하는 닉네임은 금지합니다.</p>
+    <p class="err" id="login-err"></p>
+    <button class="btn-main" id="btn-login">출발하기</button>
+  </div>
+</section>
+
+<!-- 2. 게임 선택 -->
+<section id="s-home" class="screen space">
+  <header class="topbar">
+    <div class="me"><span id="home-char" class="mini-char"></span><span id="home-nick"></span></div>
+    <div class="wallet">★ <b id="home-money">0</b></div>
+  </header>
+  <div class="home-body">
+    <div class="speech"><span id="home-big-char"></span><p>별을 먹으러 가자! 어디로 갈까?</p></div>
+    <div class="planets" id="planets"></div>
+    <div class="home-btns">
+      <button class="btn-sub" data-go="shop">🛍 꾸미기 · 상점</button>
+      <button class="btn-sub" data-go="rank">🏆 순위표</button>
+    </div>
+  </div>
+</section>
+
+<!-- 3. 문제 풀기 (밝은 화면) -->
+<section id="s-play" class="screen light">
+  <header class="playbar">
+    <div class="timer"><span id="p-time">90</span>초</div>
+    <div class="tbar"><div id="p-tbar"></div></div>
+    <div id="p-count">1 / 10</div>
+    <div class="score">점수 <b id="p-score">0</b></div>
+  </header>
+  <div class="play-body">
+    <div class="q-card">
+      <div class="q-top"><span id="p-type" class="tag"></span><span id="p-stars" class="qstars"></span></div>
+      <p id="p-q" class="q-text"></p>
+      <div id="p-fig" class="fig"></div>
+      <p id="p-hint" class="hint"></p>
+    </div>
+    <div class="a-card" id="p-answer"></div>
+  </div>
+  <div id="p-pop" class="pop"></div>
+</section>
+
+<!-- 4. 결과 -->
+<section id="s-result" class="screen space">
+  <div class="result-box">
+    <div id="r-char"></div>
+    <h2 id="r-title">판 끝!</h2>
+    <div class="r-grid">
+      <div><span>점수</span><b id="r-score">0</b></div>
+      <div><span>받은 별</span><b id="r-stars">0</b></div>
+      <div><span>번 별(돈)</span><b id="r-earn">0</b></div>
+    </div>
+    <p id="r-best" class="r-note"></p>
+    <p id="r-earn-note" class="r-note"></p>
+    <div class="home-btns">
+      <button class="btn-main" id="btn-review">틀린 문제 다시 풀기</button>
+      <button class="btn-sub" id="btn-again">한 판 더</button>
+      <button class="btn-sub" data-go="home">행성 고르기</button>
+    </div>
+  </div>
+</section>
+
+<!-- 5. 상점 -->
+<section id="s-shop" class="screen space">
+  <header class="topbar">
+    <button class="btn-back" data-go="home">← 돌아가기</button>
+    <div class="wallet">★ <b id="shop-money">0</b></div>
+  </header>
+  <div class="shop-body">
+    <div class="shop-preview"><div id="shop-char"></div><p id="shop-nick"></p></div>
+    <div class="shop-panel">
+      <h3>모양</h3><div class="grid shapes" id="shop-shapes"></div>
+      <h3>색</h3><div class="colors" id="shop-colors"></div>
+      <h3>액세서리 <small>머리 · 얼굴 · 몸에 하나씩</small></h3><div class="grid accs" id="shop-accs"></div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. 순위표 -->
+<section id="s-rank" class="screen space">
+  <header class="topbar">
+    <button class="btn-back" data-go="home">← 돌아가기</button>
+    <div class="tabs" id="rank-tabs">
+      <button data-tab="class" class="on">우리 반</button>
+      <button data-tab="school">학교</button>
+      <button data-tab="vs">학급 대항전</button>
+    </div>
+  </header>
+  <div class="rank-body">
+    <div class="chips" id="rank-games"></div>
+    <div id="rank-list"></div>
+    <div id="rank-me" class="rank-me"></div>
+  </div>
+</section>
+
+<script src="config.js"></script>
+<script src="problems.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

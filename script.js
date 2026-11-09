@@ -245,6 +245,20 @@ function myChar(mouthOpen) {
 // ---------- 도형 그림 도구 ----------
 // 점은 수학 좌표(위가 +y)로 주고, 화면 크기에 맞춰 실제 비율 그대로 줄이거나 늘림
 var FIG_W = 460, FIG_H = 300, FIG_PAD = 48;
+// 그림 글자 배율: 그림이 화면에 맞춰 줄어들어도 글자는 일정 크기로 보이게 함 (도형 크기는 그대로)
+var FIG_TEXT = 1.3;     // PC·태블릿: 그림 글자를 원래(17px 등)의 1.3배로 (약 22px)
+var FIG_TEXT_MIN = 1.18; // 폰처럼 그림이 줄어드는 화면: 줄어든 뒤에도 원래의 1.18배로 보이게 (약 20px)
+var FIG_K = FIG_TEXT;
+function setFigScale(scale) { FIG_K = Math.min(2.4, Math.max(FIG_TEXT, FIG_TEXT_MIN / Math.min(1, scale || 1))); }
+// 지금 기기에서 그림이 몇 배로 줄어드는지 재기 (문제 화면이 보이는 상태에서 부름)
+function measureFigScale() {
+  var box = $('p-fig'), old = box.style.display;
+  box.style.display = 'flex';
+  box.innerHTML = '<svg viewBox="0 0 ' + FIG_W + ' ' + FIG_H + '" width="' + FIG_W + '" height="' + FIG_H + '"></svg>';
+  var w = box.firstChild.getBoundingClientRect().width;
+  box.innerHTML = ''; box.style.display = old;
+  setFigScale(w ? w / FIG_W : 1);
+}
 function Fig(pts) {
   var minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity, k;
   for (k in pts) { minx = Math.min(minx, pts[k][0]); maxx = Math.max(maxx, pts[k][0]); miny = Math.min(miny, pts[k][1]); maxy = Math.max(maxy, pts[k][1]); }
@@ -257,6 +271,7 @@ function Fig(pts) {
   }
   this.cen = [cx / n, cy / n];
   this.g = '';
+  this.boxes = [];   // 적은 글자들의 자리 [x, y, 반너비, 반높이]
 }
 Fig.prototype.at = function (a) { return typeof a === 'string' ? this.p[a] : a; };
 Fig.prototype.poly = function (names, style) {
@@ -276,19 +291,42 @@ Fig.prototype.lab = function (a, b, t, text, isX, ref, off) {
   var M = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
   var dx = B[0] - A[0], dy = B[1] - A[1], L = Math.sqrt(dx * dx + dy * dy) || 1, nx = -dy / L, ny = dx / L;
   if ((M[0] - R[0]) * nx + (M[1] - R[1]) * ny < 0) { nx = -nx; ny = -ny; }
+  if (String(text).indexOf('=') < 0) return this.dim(A, B, M, nx, ny, L, text, isX);
   off = off || 18;
   off += Math.abs(nx) * Math.max(0, String(text).length - 2) * 4;   // 긴 식은 옆으로 더 띄움
+  off *= FIG_K;                                                       // 글자가 커진 만큼 더 띄움
   return this.text(M[0] + nx * off, M[1] + ny * off, text, isX ? 'x' : '');
+};
+// 길이 표시 (교과서식): 두 끝점을 잇는 점선 호를 바깥쪽으로 그리고, 호 가운데를 비워 글자를 적음
+Fig.prototype.dim = function (A, B, M, nx, ny, L, text, isX) {
+  var f = (isX ? 19 : 17) * FIG_K, hw = String(text).length * 0.3 * f + 3 * FIG_K, hh = 0.5 * f + 2;   // 글자 반너비·반높이 (어림)
+  var h = Math.max(0.1 * L, Math.abs(nx) * hw + Math.abs(ny) * hh + 4 * FIG_K);                          // 선분에서 호 꼭대기까지
+  var T = [M[0] + nx * h, M[1] + ny * h], Q = [M[0] + nx * 2 * h, M[1] + ny * 2 * h];                   // 글자 자리, 곡선 조절점
+  var run = [], self = this;
+  function flush() { if (run.length > 1) self.g += '<polyline points="' + run.join(' ') + '" fill="none" stroke="#77768f" stroke-width="' + (1.3 * FIG_K).toFixed(1) + '" stroke-dasharray="' + (4 * FIG_K).toFixed(1) + ' ' + (3.5 * FIG_K).toFixed(1) + '"/>'; run = []; }
+  for (var i = 0; i <= 48; i++) {
+    var u = i / 48, a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c = u * u;
+    var x = a * A[0] + b * Q[0] + c * B[0], y = a * A[1] + b * Q[1] + c * B[1];
+    if (Math.abs(x - T[0]) < hw && Math.abs(y - T[1]) < hh) flush();   // 글자 자리는 비움
+    else run.push(x.toFixed(1) + ',' + y.toFixed(1));
+  }
+  flush();
+  return this.text(T[0], T[1], text, isX ? 'x' : '');
 };
 Fig.prototype.side = function (a, b, text, isX, ref) { return this.lab(a, b, 0.5, text, isX, ref); };
 Fig.prototype.text = function (x, y, t, cls) {
-  this.g += '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" dominant-baseline="middle"' + (cls ? ' class="' + cls + '"' : '') + '>' + t + '</text>';
+  // 한글(넓이·둘레·부피)은 수식 글꼴에 없어서 원래 글꼴로 따로 표시
+  var s = String(t).replace(/x/g, '<tspan class="var">x</tspan>')    // 문자 x는 교과서처럼 기울임꼴
+    .replace(/([가-힣]+)/g, '<tspan class="ko">$1</tspan>');
+  this.g += '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" dominant-baseline="middle"' + (cls ? ' class="' + cls + '"' : '') + '>' + s + '</text>';
+  var f = ({ x: 19, v: 16, 'in': 16 }[cls] || 17) * FIG_K;   // 글자 상자 기억 (각도 글자가 피해 가도록)
+  this.boxes.push([x, y, String(t).length * 0.27 * f + 2, 0.36 * f + 2]);
   return this;
 };
 // 꼭짓점 이름 (도형 바깥쪽으로)
 Fig.prototype.name = function (n, text, ref) {
   var P = this.at(n), R = ref ? this.at(ref) : this.cen, dx = P[0] - R[0], dy = P[1] - R[1], L = Math.sqrt(dx * dx + dy * dy) || 1;
-  return this.text(P[0] + dx / L * 16, P[1] + dy / L * 16, text || n, 'v');
+  return this.text(P[0] + dx / L * 16 * FIG_K, P[1] + dy / L * 16 * FIG_K, text || n, 'v');
 };
 Fig.prototype.names = function (list, ref) { for (var i = 0; i < list.length; i++) this.name(list[i], null, ref); return this; };
 // 각 표시: 꼭짓점 v에서 a쪽과 b쪽 사이
@@ -298,8 +336,39 @@ Fig.prototype.angle = function (v, a, b, text, isX, r) {
   var d = t2 - t1; while (d > Math.PI) d -= 2 * Math.PI; while (d <= -Math.PI) d += 2 * Math.PI;
   var x1 = V[0] + r * Math.cos(t1), y1 = V[1] + r * Math.sin(t1), x2 = V[0] + r * Math.cos(t2), y2 = V[1] + r * Math.sin(t2);
   this.g += '<path d="M' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 0,' + (d > 0 ? 1 : 0) + ' ' + x2 + ',' + y2 + '" fill="none" stroke="' + (isX ? '#534ab7' : '#5f5e7a') + '" stroke-width="1.8"/>';
-  if (text) { var m = t1 + d / 2, rr = r + 20; this.text(V[0] + rr * Math.cos(m), V[1] + rr * Math.sin(m), text, isX ? 'x' : ''); }
+  if (text) this.angleLabel(v, a, b, text, isX, r);
   return this;
+};
+// 각 v(a쪽~b쪽) 안에 각도 글자만 적기
+// 글자 상자(어림)가 호(반지름 r)·두 변·먼저 적은 글자에 닿지 않는 자리를 찾음 (이등분선 위가 먼저, 안 되면 조금씩 한쪽으로)
+Fig.prototype.angleLabel = function (v, a, b, text, isX, r) {
+  var V = this.at(v), A = this.at(a), B = this.at(b); r = r || 26;
+  var t1 = Math.atan2(A[1] - V[1], A[0] - V[0]), t2 = Math.atan2(B[1] - V[1], B[0] - V[0]);
+  var d = t2 - t1; while (d > Math.PI) d -= 2 * Math.PI; while (d <= -Math.PI) d += 2 * Math.PI;
+  var f = (isX ? 19 : 17) * FIG_K, hw = String(text).length * 0.27 * f + 2, hh = 0.36 * f + 2;
+  var ext = function (ang) { return hw * Math.abs(Math.cos(ang)) + hh * Math.abs(Math.sin(ang)); };   // 그 방향으로 글자가 차지하는 반폭
+  var tries = [[0.5, 1], [0.4, 1], [0.6, 1], [0.3, 1], [0.7, 1], [0.8, 1], [0.2, 1], [0.5, 1.4], [0.35, 1.4], [0.65, 1.4]], first = null;   // [기울기, 거리 배율]
+  for (var i = 0; i < tries.length; i++) {
+    var ln = tries[i][0];
+    var m = t1 + d * ln, base = r + 5 + ext(m);
+    var need = Math.max((ext(t1 + Math.PI / 2) + 4) / (Math.sin(Math.abs(d) * ln) || 1), (ext(t2 + Math.PI / 2) + 4) / (Math.sin(Math.abs(d) * (1 - ln)) || 1));
+    var rr = Math.min(Math.max(base, need), 2.2 * base) * tries[i][1];   // 좁은 각은 더 멀리 (너무 멀어지지는 않게)
+    var x = V[0] + rr * Math.cos(m), y = V[1] + rr * Math.sin(m);
+    if (!first) first = [x, y];
+    if (need <= 2.2 * base && !this.hits(x, y, hw, hh) && this.nearV(x, y, V)) return this.text(x, y, text, isX ? 'x' : '');
+  }
+  return this.text(first[0], first[1], text, isX ? 'x' : '');
+};
+// (x, y)가 꼭짓점 V 가까이에 있는지: 다른 점보다 훨씬 멀면 안 됨 (각도 글자가 다른 꼭짓점 쪽으로 가 버려 헷갈리지 않게)
+Fig.prototype.nearV = function (x, y, V) {
+  var dv = Math.sqrt((V[0] - x) * (V[0] - x) + (V[1] - y) * (V[1] - y)), bd = Infinity;
+  for (var k in this.p) { var P = this.p[k]; if (P === V) continue; bd = Math.min(bd, Math.sqrt((P[0] - x) * (P[0] - x) + (P[1] - y) * (P[1] - y))); }
+  return dv <= 1.25 * bd;
+};
+// 먼저 적은 글자 상자와 겹치는지
+Fig.prototype.hits = function (x, y, hw, hh) {
+  for (var i = 0; i < this.boxes.length; i++) { var o = this.boxes[i]; if (Math.abs(x - o[0]) < hw + o[2] + 5 * FIG_K && Math.abs(y - o[1]) < hh + o[3] + 3 * FIG_K) return true; }   // 여유 있게 띄움
+  return false;
 };
 Fig.prototype.right = function (v, a, b) {
   var V = this.at(v), A = this.at(a), B = this.at(b), s = 13;
@@ -323,7 +392,12 @@ Fig.prototype.inside = function (list, text, isX) {
   list.forEach(function (n) { x += self.at(n)[0]; y += self.at(n)[1]; });
   return this.text(x / list.length, y / list.length, text, isX ? 'x' : 'in');
 };
-Fig.prototype.svg = function () { return '<svg viewBox="0 0 ' + FIG_W + ' ' + FIG_H + '" width="' + FIG_W + '" height="' + FIG_H + '">' + this.g + '</svg>'; };
+// 그림 왼쪽 위 빈 곳에 한 줄씩 (도형 안에 넣기엔 긴 글자)
+Fig.prototype.legend = function (lines) {
+  for (var i = 0; i < lines.length; i++) this.g += '<text x="4" y="' + ((14 + 22 * i) * FIG_K).toFixed(1) + '" dominant-baseline="middle">' + lines[i] + '</text>';
+  return this;
+};
+Fig.prototype.svg = function () { return '<svg viewBox="0 0 ' + FIG_W + ' ' + FIG_H + '" width="' + FIG_W + '" height="' + FIG_H + '" style="--k:' + FIG_K.toFixed(2) + '">' + this.g + '</svg>'; };
 
 var LINE = 'fill="none" stroke="#1f2140" stroke-width="2.5" stroke-linejoin="round"';
 function norm(v) { var L = Math.sqrt(v[0] * v[0] + v[1] * v[1]) || 1; return [v[0] / L, v[1] / L]; }
@@ -381,13 +455,13 @@ var CALC = {
     },
     function paraSide() {
       var e = exprPair(), f = new Fig(paraPts(60));
-      f.poly(['A', 'B', 'C', 'D']).names(['A', 'B', 'C', 'D']).side('A', 'B', e.e1).side('D', 'C', e.e2);
+      f.poly(['A', 'B', 'C', 'D']).names(['A', 'B', 'C', 'D']).side('A', 'D', e.e1).side('B', 'C', e.e2);   // 긴 식이 옆으로 삐져나가지 않게 위·아래 변에 적음
       return C('평행사변형의 대변', '평행사변형 ABCD에서 x의 값은?', f.svg(), e.x, '', '평행사변형에서 마주 보는 두 변의 길이는 같아요. 두 식을 같다고 놓아 보세요.');
     },
     function paraDiag() {
       var k = rand(4, 15), p = paraPts(60); p.O = lerp(p.A, p.C, 0.5);
       var f = new Fig(p);
-      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').seg('B', 'D', 'thin').names(['A', 'B', 'C', 'D']).name('O', 'O', 'D').side('A', 'O', k, false, 'B');
+      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').seg('B', 'D', 'thin').names(['A', 'B', 'C', 'D']).name('O', 'O', 'D').side('A', 'O', k, false, 'D');   // 길이는 AO 아래쪽에 (위쪽은 변 AD와 가까워서)
       return C('평행사변형의 대각선', '평행사변형 ABCD에서 AC의 길이는?', f.svg(), 2 * k, '', '평행사변형의 두 대각선은 서로 다른 것을 이등분해요.');
     },
     function rectDiag() {
@@ -404,17 +478,21 @@ var CALC = {
       var d1 = rand(3, 8) * 2, d2 = rand(2, 7) * 2;
       if (d1 === d2) d1 += 2;
       var f = new Fig(rhombusTop(d1 / 2, d2 / 2));
-      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'dash').seg('B', 'D', 'dash').names(['A', 'B', 'C', 'D']).lab('B', 'D', 0.25, 'BD = ' + d1, false, 'A', 14).lab('A', 'C', 0.25, 'AC = ' + d2, false, 'D', 30);
+      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'dash').seg('B', 'D', 'dash').names(['A', 'B', 'C', 'D']).legend(['BD = ' + d1, 'AC = ' + d2]);   // 글자가 커서 왼쪽 위 빈 곳에 적음
       return C('마름모의 넓이', '마름모 ABCD의 넓이는?', f.svg(), d1 * d2 / 2, '', '마름모의 넓이 = (두 대각선의 곱) ÷ 2');
     },
     function rhombusDiagAngle() {
-      var d = rand(5, 13) * 5, f = new Fig(rhombusTop(4, 4 * Math.tan(rad(d))));
-      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').seg('B', 'D', 'thin').names(['A', 'B', 'C', 'D']).name('O', 'O', 'B').right('O', 'A', 'D').angle('B', 'A', 'O', d + '°').angle('A', 'B', 'O', 'x°', true);
+      var d = pick([25, 30, 35, 60]), f = new Fig(d <= 45 ? rhombusTop(4, 4 * Math.tan(rad(d))) : rhombusLeft(4 * Math.tan(rad(d)), 4));   // 40°~55°·65°는 뺌 (폰에서 두 각도 글자가 붙어서). 45°보다 크면 옆으로 눕혀 그림을 넓게
+      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').seg('B', 'D', 'thin').names(['A', 'B', 'C', 'D']).name('O', 'O', 'B').right('O', 'A', 'D');
+      // 넓은 쪽 각의 글자를 먼저 적고, 좁은 각의 글자가 그것을 피해 가게
+      if (d <= 45) f.angle('A', 'B', 'O', 'x°', true).angle('B', 'A', 'O', d + '°');
+      else f.angle('B', 'A', 'O', d + '°').angle('A', 'B', 'O', 'x°', true);
       return C('마름모의 대각선과 각', '마름모 ABCD에서 x의 값은?', f.svg(), 90 - d, '°', '마름모의 두 대각선은 수직으로 만나요. 삼각형 ABO의 세 각의 합을 생각해 보세요.');
     },
     function rhombusHalf() {
-      var a = rand(5, 14) * 10, f = new Fig(rhombusLeft(4, 4 * Math.tan(rad(a / 2))));
-      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').names(['A', 'B', 'C', 'D']).angle('C', 'B', 'D', a + '°').angle('A', 'B', 'C', 'x°', true, 34);
+      var a = rand(5, 14) * 10, f = new Fig(a <= 90 ? rhombusLeft(4, 4 * Math.tan(rad(a / 2))) : rhombusTop(4 * Math.tan(rad(a / 2)), 4));   // 둔각이면 세워서 그림을 넓게
+      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').names(['A', 'B', 'C', 'D']).angle('C', 'B', 'D').angle('A', 'B', 'C', 'x°', true, 34)
+        .angleLabel('C', 'D', 'A', a + '°', false, 26);   // 대각선 위쪽 절반에 적어 x°와 안 겹치게
       return C('마름모의 대각선과 내각', '마름모 ABCD에서 x의 값은?', f.svg(), a / 2, '°', '마름모의 마주 보는 각은 같고, 대각선은 그 각을 이등분해요.');
     },
     function rhombusSide() {
@@ -425,12 +503,12 @@ var CALC = {
     function rectDiagExpr() {
       var e = exprPair(), f = new Fig(rectPts(5, 3));
       f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').seg('B', 'D', 'thin').names(['A', 'B', 'C', 'D']).right('B', 'A', 'C')
-        .lab('A', 'C', 0.22, 'AC = ' + e.e1, false, 'D', 16).lab('B', 'D', 0.22, 'BD = ' + e.e2, false, 'C', 16);
+        .text((f.p.A[0] + f.p.D[0]) / 2, f.p.A[1] + 18 * FIG_K, 'AC = ' + e.e1).text((f.p.B[0] + f.p.C[0]) / 2, f.p.B[1] - 18 * FIG_K, 'BD = ' + e.e2);   // 위·아래 삼각형 안에 하나씩
       return C('직사각형의 대각선 (식)', '직사각형 ABCD에서 x의 값은?', f.svg(), e.x, '', '직사각형의 두 대각선의 길이는 같아요.');
     },
     function rectIso() {
-      var d = rand(5, 13) * 5, w = 5, f = new Fig(rectPts(w, w * Math.tan(rad(d))));
-      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').seg('B', 'D', 'thin').seg('B', 'O', 'hl').seg('C', 'O', 'hl').names(['A', 'B', 'C', 'D']).name('O', 'O', 'A')
+      var d = rand(5, 11) * 5, w = 5, f = new Fig(rectPts(w, w * Math.tan(rad(d))));   // 60°·65°는 그림이 너무 좁아져 글자가 겹쳐서 뺌 (25°~55°)
+      f.poly(['A', 'B', 'C', 'D']).seg('A', 'C', 'thin').seg('B', 'D', 'thin').seg('B', 'O', 'hl').seg('C', 'O', 'hl').names(['A', 'B', 'C', 'D']).name('O', 'O', [f.p.O[0], f.p.O[1] + 10])   /* O는 위쪽에: 아래 x°와 안 겹치게 */
         .angle('B', 'C', 'O', d + '°', false, 34).angle('O', 'B', 'C', 'x°', true, 20);
       return C('직사각형의 대각선과 이등변삼각형', '직사각형 ABCD에서 x의 값은?', f.svg(), 180 - 2 * d, '°', '직사각형의 대각선은 길이가 같고 서로 이등분해요. 그래서 OB = OC예요.');
     },
@@ -491,7 +569,7 @@ var CALC = {
       var k = rand(2, 10), p = { A: [3, 7], B: [0, 0], C: [10, 0] };
       p.D = lerp(p.B, p.C, 0.5); p.G = lerp(p.A, p.D, 2 / 3);
       var f = new Fig(p), askGD = Math.random() < 0.5;
-      f.poly(['A', 'B', 'C']).seg('A', 'D', 'hl').dot('G').names(['A', 'B', 'C']).name('D', 'D', 'A').tick('B', 'D', 1).tick('D', 'C', 1).text(f.p.G[0] - 16, f.p.G[1], 'G', 'v');
+      f.poly(['A', 'B', 'C']).seg('A', 'D', 'hl').dot('G').names(['A', 'B', 'C']).name('D', 'D', 'A').tick('B', 'D', 1).tick('D', 'C', 1).text(f.p.G[0] - 16 * FIG_K, f.p.G[1], 'G', 'v');
       if (askGD) { f.lab('A', 'G', 0.5, 2 * k, false, 'C', 16).lab('G', 'D', 0.5, 'x', true, 'C', 16); return C('무게중심', '점 G가 △ABC의 무게중심일 때 x의 값은?', f.svg(), k, '', '무게중심은 중선을 꼭짓점으로부터 2 : 1로 나눠요.'); }
       f.lab('A', 'G', 0.5, 'x', true, 'C', 16).lab('G', 'D', 0.5, k, false, 'C', 16);
       return C('무게중심', '점 G가 △ABC의 무게중심일 때 x의 값은?', f.svg(), 2 * k, '', '무게중심은 중선을 꼭짓점으로부터 2 : 1로 나눠요.');
@@ -501,8 +579,9 @@ var CALC = {
       while (a + b > 145) b -= 10;
       var p = triByAngles(a, b, 4, 0), q = triByAngles(a, b, 6, 5.5);
       var f = new Fig({ A: p.A, B: p.B, C: p.C, D: q.A, E: q.B, F: q.C });
-      f.poly(['A', 'B', 'C']).poly(['D', 'E', 'F']).name('A', 'A', 'B').name('B', 'B', 'C').name('C', 'C', 'A').name('D', 'D', 'E').name('E', 'E', 'F').name('F', 'F', 'D')
-        .angle('A', 'B', 'C', a + '°', false, 20).angle('E', 'F', 'D', b + '°', false, 24).angle('F', 'D', 'E', 'x°', true, 24);
+      f.poly(['A', 'B', 'C']).poly(['D', 'E', 'F']).name('A', 'A', 'B').name('B', 'B', 'C').name('D', 'D', 'E').name('F', 'F', 'D');
+      nameApart(f);
+      f.angle('A', 'B', 'C', a + '°', false, 20).angle('E', 'F', 'D', b + '°', false, 24).angle('F', 'D', 'E', 'x°', true, 24);
       return C('닮은 삼각형의 대응각', '△ABC ∽ △DEF일 때 x의 값은?', f.svg(), 180 - a - b, '°', '대응각의 크기는 같아요. ∠D = ∠A예요. 삼각형의 세 각의 합은 180°.');
     },
     function simPerim() {
@@ -526,7 +605,7 @@ var CALC = {
       var alpha = rand(55, 75), p = triFromA(alpha, ab, ac);
       p.D = lerp(p.A, p.B, ad / ab); p.E = lerp(p.A, p.C, ae / ac);
       var f = new Fig(p);
-      f.poly(['A', 'B', 'C']).seg('D', 'E', 'hl').names(['A', 'B', 'C']).name('D', 'D', 'E').name('E', 'E', 'D')
+      f.poly(['A', 'B', 'C']).seg('D', 'E', 'hl').names(['A', 'B', 'C']).name('D', 'D', innerRef(f, 'D', 'A', 'E')).name('E', 'E', innerRef(f, 'E', 'A', 'D'))
         .angle('D', 'A', 'E', '', false, 18).angle('C', 'A', 'B', '', false, 18)
         .side('A', 'D', ad).side('D', 'B', 'x', true).side('A', 'E', ae).side('E', 'C', ac - ae);
       return C('겹친 삼각형 (AA 닮음)', '∠ADE = ∠ACB일 때 x의 값은?', f.svg(), ab - ad, '', '△ADE ∽ △ACB (AA 닮음)이에요. AD : AC = AE : AB');
@@ -537,7 +616,7 @@ var CALC = {
       var bc = r[1] * rand(2, 5), alpha = rand(50, 70), p = triFromA(alpha, ab, ac);
       p.D = lerp(p.A, p.B, ad / ab); p.E = lerp(p.A, p.C, ae / ac);
       var f = new Fig(p);
-      f.poly(['A', 'B', 'C']).seg('D', 'E', 'hl').names(['A', 'B', 'C']).name('D', 'D', 'E').name('E', 'E', 'D')
+      f.poly(['A', 'B', 'C']).seg('D', 'E', 'hl').names(['A', 'B', 'C']).name('D', 'D', innerRef(f, 'D', 'A', 'E')).name('E', 'E', innerRef(f, 'E', 'A', 'D'))
         .side('A', 'D', ad).side('D', 'B', ab - ad).side('A', 'E', ae).side('E', 'C', ac - ae).lab('D', 'E', 0.5, bc / r[1] * r[0], false, 'A', 14).side('B', 'C', 'x', true);
       return C('겹친 삼각형 (SAS 닮음)', 'x의 값은?', f.svg(), bc, '', '∠A가 공통이고 AD : AC = AE : AB예요. △ADE ∽ △ACB (SAS 닮음)');
     },
@@ -599,11 +678,26 @@ function tripleRecall() {
 function simPair(r) {
   var p = triByAngles(62, 58, r[0], 0), q = triByAngles(62, 58, r[1], r[0] + 0.8);
   var f = new Fig({ A: p.A, B: p.B, C: p.C, D: q.A, E: q.B, F: q.C });
-  f.poly(['A', 'B', 'C']).poly(['D', 'E', 'F']).name('A', 'A', 'B').name('B', 'B', 'C').name('C', 'C', 'A').name('D', 'D', 'E').name('E', 'E', 'F').name('F', 'F', 'D');
+  f.poly(['A', 'B', 'C']).poly(['D', 'E', 'F']).name('A', 'A', 'B').name('B', 'B', 'C').name('D', 'D', 'E').name('F', 'F', 'D');
+  nameApart(f);
   f.side = function (a, b, text, isX) { return Fig.prototype.side.call(this, a, b, text, isX, third(a, b)); };
-  // 넓이·둘레는 삼각형 위쪽에 표시 (작은 삼각형 안에는 글자가 안 들어가서)
-  f.note = function (apex, text, isX) { var P = this.p[apex]; return this.text(P[0], P[1] - 38, text, isX ? 'x' : 'in'); };
+  // 넓이·둘레: 작은 삼각형은 위쪽에 (안에는 글자가 안 들어가서), 큰 삼각형은 안쪽 아래에 (위로는 그림 밖으로 나가서)
+  f.note = function (apex, text, isX) {
+    var P = this.p[apex], cls = isX ? 'x' : 'in';
+    if (apex === 'D') { var E = this.p.E, F = this.p.F; return this.text((P[0] + E[0] + F[0]) / 3, E[1] - (E[1] - P[1]) * 0.28, text, cls); }
+    return this.text(P[0], P[1] - 38 * FIG_K, text, cls);
+  };
   return f;
+}
+// 나란히 놓인 두 삼각형에서 C와 E가 붙어 있어 이름이 겹치므로 C는 왼쪽 아래, E는 오른쪽 아래로 뗌
+function nameApart(f) {
+  var C = f.p.C, E = f.p.E;
+  return f.name('C', 'C', [C[0] + 10, C[1] - 10]).name('E', 'E', [E[0] - 10, E[1] - 10]);
+}
+// 겹친 삼각형의 점 D·E 이름은 작은 삼각형 ADE 안쪽으로 → 바깥의 변 길이·꼭짓점 이름과 안 겹침
+function innerRef(f, v, a, b) {
+  var V = f.p[v], A = f.p[a], B = f.p[b];
+  return [2 * V[0] - (A[0] + B[0]) / 2, 2 * V[1] - (A[1] + B[1]) / 2];
 }
 function third(a, b) {   // 같은 삼각형의 나머지 꼭짓점 (글자를 바깥쪽으로 보내려고)
   var tri = 'ABC'.indexOf(a) > -1 ? 'ABC' : 'DEF';
@@ -621,7 +715,8 @@ function cubesFig(r, smallLabel) {
   var f = new Fig(p), face = 'fill="#eeedfe" stroke="#1f2140" stroke-width="2" stroke-linejoin="round"', top = 'fill="#ffffff" stroke="#1f2140" stroke-width="2" stroke-linejoin="round"';
   f.poly(['a1', 'a2', 'a3', 'a4'], face).poly(['a4', 'a3', 'a6', 'a5'], top).poly(['a2', 'a7', 'a6', 'a3'], top);
   f.poly(['b1', 'b2', 'b3', 'b4'], face).poly(['b4', 'b3', 'b6', 'b5'], top).poly(['b2', 'b7', 'b6', 'b3'], top);
-  f.text(f.p.l1[0], f.p.l1[1], smallLabel, 'in').text(f.p.l2[0], f.p.l2[1], '부피 ?', 'x');
+  var dy = 10 * (FIG_K - 1);   // 글자가 커진 만큼 정육면체에서 아래로 띄움
+  f.text(f.p.l1[0], f.p.l1[1] + dy, smallLabel, 'in').text(f.p.l2[0], f.p.l2[1] + dy, '부피 ?', 'x');
   return f.svg();
 }
 
@@ -652,6 +747,7 @@ function buildSet(gameId) {
 var game = null, tick = null;
 
 function startGame(gameId, reviewList) {
+  if (!reviewList) { show('play'); measureFigScale(); }   // 이 기기에서 그림이 줄어드는 정도를 재서 글자 크기를 맞춤
   game = {
     id: gameId, review: !!reviewList,
     list: reviewList ? reviewList.map(function (p) { return Object.assign({}, p, { shown: p.options ? shuffle(p.options) : null }); }) : buildSet(gameId),
